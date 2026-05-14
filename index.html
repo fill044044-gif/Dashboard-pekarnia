@@ -1,0 +1,971 @@
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Панель управления сетью пекарен | PRO</title>
+    
+    <!-- Подключение библиотек -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        .tab-active { background-color: #ffedd5; color: #c2410c; }
+        .tab-inactive { color: #475569; }
+        .tab-inactive:hover { background-color: #f1f5f9; }
+        
+        .custom-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        .animate-spin-slow { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        
+        .clickable-row { cursor: pointer; transition: background-color 0.15s ease; }
+        .clickable-row:hover { background-color: #f1f5f9; }
+    </style>
+</head>
+<body class="text-slate-900 antialiased h-screen flex flex-col">
+
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm flex-none" data-html2canvas-ignore="true">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center space-x-3">
+                    <div class="bg-orange-500 p-2 rounded-lg text-white">
+                        <i class="ph ph-storefront text-2xl"></i>
+                    </div>
+                    <h1 class="text-xl font-bold text-slate-800 hidden sm:block">Панель администратора</h1>
+                </div>
+                
+                <div class="flex items-center space-x-2 sm:space-x-4">
+                    <!-- Выбор роли (Имитация доступа) -->
+                    <div class="flex items-center bg-slate-50 border border-slate-200 rounded-md px-2 py-1">
+                        <i class="ph ph-shield-check text-indigo-500 mr-2 text-lg"></i>
+                        <select id="role-selector" onchange="handleRoleChange()" class="text-sm bg-transparent outline-none font-medium text-slate-700 cursor-pointer border-none focus:ring-0">
+                            <option value="admin">Администратор (Все)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="w-px h-6 bg-slate-200 hidden sm:block"></div>
+                    
+                    <nav class="flex space-x-2">
+                        <button onclick="switchTab('input')" id="tab-btn-input" class="tab-active px-3 py-2 rounded-md text-sm font-medium flex items-center space-x-2 transition-colors">
+                            <i class="ph ph-database text-lg"></i>
+                            <span class="hidden sm:inline">История данных</span>
+                        </button>
+                        <!-- Вкладка Администратора -->
+                        <button onclick="switchTab('report')" id="tab-btn-report" class="tab-inactive px-3 py-2 rounded-md text-sm font-medium flex items-center space-x-2 transition-colors">
+                            <i class="ph ph-chart-line-up text-lg"></i>
+                            <span class="hidden sm:inline">Сводный отчет</span>
+                        </button>
+                        <!-- Вкладка Менеджера (Новая) -->
+                        <button onclick="switchTab('manager')" id="tab-btn-manager" class="hidden tab-inactive px-3 py-2 rounded-md text-sm font-medium flex items-center space-x-2 transition-colors">
+                            <i class="ph ph-clipboard-text text-lg"></i>
+                            <span class="hidden sm:inline">Моя пекарня (План)</span>
+                        </button>
+                    </nav>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow overflow-auto py-8 relative">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <!-- Всплывающее уведомление -->
+            <div id="toast" class="fixed top-20 right-4 bg-green-500 text-white px-4 py-3 rounded-lg shadow-lg transform transition-transform duration-300 translate-x-full z-50 flex items-center space-x-2 opacity-0">
+                <i class="ph ph-check-circle text-xl"></i>
+                <span id="toast-message">Действие выполнено</span>
+            </div>
+
+            <!-- TAB: ИСТОРИЯ ДАННЫХ -->
+            <div id="tab-input" class="block">
+                <div class="w-full">
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-full overflow-hidden min-h-[600px]">
+                        <div class="px-6 py-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center flex-none">
+                            <div class="flex items-center space-x-4">
+                                <h2 class="text-lg font-semibold text-slate-800 flex items-center">
+                                    <i class="ph ph-clock-counter-clockwise mr-2 text-xl text-slate-500"></i>История переданных данных
+                                </h2>
+                                <button id="clear-filter-btn" onclick="clearHistoryFilter()" class="hidden bg-indigo-100 text-indigo-700 hover:bg-indigo-200 px-3 py-1 rounded-full text-xs font-semibold transition-colors flex items-center shadow-sm">
+                                    <i class="ph ph-arrow-left mr-1 text-sm"></i> <span id="filter-bakery-name">Назад ко всем точкам</span>
+                                </button>
+                            </div>
+                            <span id="total-entries-badge" class="text-xs font-medium bg-slate-200 text-slate-700 py-1 px-3 rounded-full shadow-inner">Всего: 0</span>
+                        </div>
+                        <div class="overflow-x-auto custom-scroll flex-grow">
+                            <table class="min-w-full divide-y divide-slate-200">
+                                <thead class="bg-white sticky top-0 shadow-sm z-10">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Дата</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Точка</th>
+                                        <th class="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Выручка (Факт / План ИИ)</th>
+                                        <th class="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Ср. чек</th>
+                                        <th class="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Действие</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="recent-entries-tbody" class="bg-white divide-y divide-slate-100">
+                                    <!-- Данные генерируются через JS -->
+                                </tbody>
+                            </table>
+                            <div id="empty-data-state" class="hidden p-12 text-center flex flex-col items-center text-slate-500">
+                                <i class="ph ph-folder-open text-4xl mb-3"></i>
+                                <p>Нет данных для отображения.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: МОЯ ПЕКАРНЯ (МЕНЕДЖЕР) -->
+            <div id="tab-manager" class="hidden space-y-6">
+                <!-- Панель управления менеджера -->
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-4" data-html2canvas-ignore="true">
+                    <div class="flex items-center space-x-3 w-full sm:w-auto bg-slate-50 p-2 rounded-lg border border-slate-100">
+                        <i class="ph ph-calendar-check text-indigo-500 text-xl"></i>
+                        <label class="text-sm font-medium text-slate-700 whitespace-nowrap">План на:</label>
+                        <select id="manager-week-selector" onchange="renderManagerTab()" class="px-2 py-1 bg-transparent border-none outline-none font-semibold text-indigo-900 cursor-pointer text-sm w-full sm:w-auto"></select>
+                    </div>
+                    <button onclick="exportManagerToPDF()" class="w-full sm:w-auto justify-center bg-rose-600 text-white py-2 px-4 rounded-md text-sm font-medium shadow-sm flex items-center hover:bg-rose-700 transition">
+                        <i class="ph ph-file-pdf mr-2 text-lg"></i> Скачать План (PDF)
+                    </button>
+                </div>
+
+                <!-- Блок для экспорта в PDF (Менеджер) -->
+                <div id="manager-pdf-content" class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="px-6 py-4 border-b border-slate-200 bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center print-header">
+                        <h2 class="text-lg font-semibold text-slate-800 flex items-center" id="manager-plan-title">
+                            <i class="ph ph-target mr-2 text-indigo-500"></i> План и Мониторинг
+                        </h2>
+                        <div class="text-xs text-slate-500 mt-2 sm:mt-0" id="manager-plan-meta"></div>
+                    </div>
+                    
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-slate-200">
+                            <thead class="bg-white">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Дата</th>
+                                    <th class="px-6 py-3 text-right text-xs font-bold text-indigo-600 uppercase tracking-wider border-l border-slate-100">План Выручки (ИИ)</th>
+                                    <th class="px-6 py-3 text-right text-xs font-bold text-slate-800 uppercase tracking-wider border-l border-slate-100">Факт Выручка</th>
+                                    <th class="px-6 py-3 text-center text-xs font-bold text-slate-500 uppercase tracking-wider border-l border-slate-100">Статус Плана</th>
+                                    <th class="px-6 py-3 text-right text-xs font-bold text-emerald-600 uppercase tracking-wider border-l border-slate-100">Цель: Ср. чек</th>
+                                    <th class="px-6 py-3 text-right text-xs font-bold text-slate-800 uppercase tracking-wider border-l border-slate-100">Факт Ср. чек</th>
+                                </tr>
+                            </thead>
+                            <tbody id="manager-tbody" class="bg-white divide-y divide-slate-100">
+                                <!-- Данные плана менеджера генерируются через JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: СВОДНЫЙ ОТЧЕТ (АДМИН) -->
+            <div id="tab-report" class="space-y-6 hidden">
+                
+                <!-- Панель инструментов отчета -->
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4" data-html2canvas-ignore="true">
+                    
+                    <div class="flex flex-wrap items-center gap-4 w-full xl:w-auto">
+                        <div class="flex items-center space-x-3 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                            <i class="ph ph-calendar-blank text-lg text-indigo-500"></i>
+                            <label class="text-sm font-medium text-slate-700 whitespace-nowrap">Неделя:</label>
+                            <select id="week-selector" onchange="handleWeekChange()" class="px-2 py-1 border-none bg-transparent text-sm outline-none cursor-pointer font-semibold text-indigo-900"></select>
+                        </div>
+                        
+                        <div class="flex items-center space-x-3 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                            <i class="ph ph-target text-lg text-emerald-500"></i>
+                            <label class="text-sm font-medium text-slate-700 whitespace-nowrap">Цель по чеку (₽):</label>
+                            <input type="number" id="target-avg-check" value="400" onchange="handleTargetCheckChange()" min="1" class="w-20 px-2 py-1 border border-slate-200 rounded text-sm outline-none focus:border-emerald-500 font-semibold text-emerald-900">
+                        </div>
+                    </div>
+                    
+                    <div class="flex flex-wrap gap-2 w-full xl:w-auto">
+                        <button onclick="exportToPDF()" class="flex-1 sm:flex-none justify-center bg-rose-600 text-white py-2 px-4 rounded-md hover:bg-rose-700 transition-colors text-sm font-medium flex items-center shadow-sm">
+                            <i class="ph ph-file-pdf mr-2 text-lg"></i> PDF
+                        </button>
+                        <button onclick="sendToEmail()" class="flex-1 sm:flex-none justify-center bg-amber-500 text-white py-2 px-4 rounded-md hover:bg-amber-600 transition-colors text-sm font-medium flex items-center shadow-sm">
+                            <i class="ph ph-paper-plane-tilt mr-2 text-lg"></i> Email
+                        </button>
+                        <button onclick="generateAIRecommendations()" id="btn-generate-ai" class="w-full sm:w-auto justify-center bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 transition-colors font-medium flex items-center shadow-sm ml-0 sm:ml-2">
+                            <i class="ph ph-sparkle mr-2 text-lg"></i> ИИ-Анализ
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Блок для экспорта в PDF (Админ) -->
+                <div id="report-content-to-pdf" class="space-y-6 bg-slate-50 p-1 md:p-0">
+                    <div class="hidden print-header text-center mb-6 pt-4" id="pdf-header">
+                        <h1 class="text-2xl font-bold text-slate-800">Отчет сети пекарен (План-Факт)</h1>
+                        <p class="text-slate-500" id="pdf-week-label">Неделя</p>
+                    </div>
+
+                    <!-- Карточки KPI и Топ-3 -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <!-- KPI Выручка -->
+                        <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-center">
+                            <div class="flex items-center space-x-4 mb-2">
+                                <div class="p-3 bg-green-100 text-green-600 rounded-xl"><i class="ph ph-money text-2xl"></i></div>
+                                <p class="text-sm text-slate-500 font-medium">Общая выручка (Факт / План)</p>
+                            </div>
+                            <h3 id="kpi-total-revenue" class="text-2xl font-bold text-slate-800 leading-tight">0 ₽</h3>
+                        </div>
+                        
+                        <!-- KPI Покупатели -->
+                        <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-center">
+                            <div class="flex items-center space-x-4 mb-2">
+                                <div class="p-3 bg-blue-100 text-blue-600 rounded-xl"><i class="ph ph-users-three text-2xl"></i></div>
+                                <p class="text-sm text-slate-500 font-medium">Всего покупателей</p>
+                            </div>
+                            <h3 id="kpi-total-customers" class="text-2xl font-bold text-slate-800 leading-tight mt-2">0</h3>
+                        </div>
+
+                        <!-- ТОП-3 Точки по Ср. Чеку -->
+                        <div class="bg-white p-5 rounded-xl shadow-sm border border-amber-200 flex flex-col justify-between">
+                            <h3 class="text-sm font-bold mb-3 flex items-center text-amber-800">
+                                <i class="ph ph-ranking mr-2 text-amber-500 text-lg"></i> ТОП-3: Выполнение плана чека
+                            </h3>
+                            <div id="top3-avg-check-container" class="space-y-3">
+                                <!-- Рендерится через JS -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Графики План-Факт -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                            <h3 class="text-lg font-semibold mb-4 flex items-center text-slate-800">
+                                <i class="ph ph-chart-line-up mr-2 text-indigo-500 text-xl"></i> Выручка: Факт vs План
+                            </h3>
+                            <div class="relative h-72 w-full"><canvas id="revenueChart"></canvas></div>
+                        </div>
+
+                        <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                            <h3 class="text-lg font-semibold mb-4 flex items-center text-slate-800">
+                                <i class="ph ph-chart-bar mr-2 text-amber-500 text-xl"></i> Средний чек: Факт vs Цель
+                            </h3>
+                            <div class="relative h-72 w-full"><canvas id="avgCheckChart"></canvas></div>
+                        </div>
+                    </div>
+
+                    <!-- Таблица отчета ПЛАН-ФАКТ -->
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div class="px-6 py-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
+                            <h2 class="text-lg font-semibold text-slate-800 flex items-center">
+                                <i class="ph ph-scales mr-2 text-indigo-500"></i> План-Факт анализ точек <span class="text-sm font-normal text-slate-500 ml-2">(Кликните на точку для деталей)</span>
+                            </h2>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-slate-200">
+                                <thead class="bg-white">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Точка</th>
+                                        <th class="px-6 py-3 text-center text-xs font-bold text-slate-500 uppercase tracking-wider border-l border-slate-100">Рабочие Дни</th>
+                                        <th class="px-6 py-3 text-right text-xs font-bold text-indigo-600 uppercase tracking-wider border-l border-slate-100">Выручка (Факт/План)</th>
+                                        <th class="px-6 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider border-l border-slate-100">Покупатели</th>
+                                        <th class="px-6 py-3 text-right text-xs font-bold text-emerald-600 uppercase tracking-wider border-l border-slate-100">Ср. чек (Факт/Цель)</th>
+                                        <th class="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider border-l border-slate-100">Статус & ИИ-совет</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="report-tbody" class="bg-white divide-y divide-slate-100"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Модальное окно детализации План-Факт (Drill-down) -->
+        <div id="bakery-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex flex-col items-center justify-center p-4 sm:p-6 opacity-0 transition-opacity duration-200" data-html2canvas-ignore="true">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col transform transition-transform scale-95 duration-200" id="bakery-modal-content">
+                <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-2xl flex-none">
+                    <h2 class="text-xl font-bold text-slate-800 flex items-center" id="modal-title">
+                        Детальный отчет План-Факт
+                    </h2>
+                    <button onclick="closeBakeryModal()" class="text-slate-400 hover:text-slate-700 hover:bg-slate-200 p-2 rounded-full transition-colors focus:outline-none">
+                        <i class="ph ph-x text-xl"></i>
+                    </button>
+                </div>
+                <div class="p-6 overflow-y-auto custom-scroll flex-grow" id="modal-body">
+                    <!-- Заполняется через JS -->
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const BAKERIES = Array.from({ length: 15 }, (_, i) => `Пекарня ${i + 1}`);
+        
+        let state = {
+            data: [],
+            activeTab: 'input',
+            selectedWeek: '',
+            managerSelectedWeek: '',
+            aiRecommendations: {},
+            chartInstance: null,
+            avgCheckChartInstance: null,
+            currentUserRole: 'admin', 
+            historyFilterBakery: null, 
+            targetAvgCheck: 400        
+        };
+
+        const formatCurrency = (val) => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(val);
+        
+        // Получение строки ISO недели (YYYY-WXX)
+        const getWeekNumber = (d) => { 
+            const date = new Date(d); date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7)); 
+            const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1)); 
+            const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1) / 7); 
+            return `${date.getUTCFullYear()}-W${weekNo.toString().padStart(2, '0')}`; 
+        };
+        
+        // Преобразование строки недели обратно в массив дат
+        const getDatesFromWeekStr = (weekStr) => {
+            const parts = weekStr.split('-W');
+            if(parts.length !== 2) return [];
+            const year = parseInt(parts[0]);
+            const weekNum = parseInt(parts[1]);
+            const d = new Date(Date.UTC(year, 0, 4));
+            const dayOfWeek = d.getUTCDay() || 7; 
+            d.setUTCDate(d.getUTCDate() - dayOfWeek + 1); // Понедельник 1-й недели
+            d.setUTCDate(d.getUTCDate() + (weekNum - 1) * 7); // Сдвиг к нужной неделе
+            
+            const dates = [];
+            for(let i=0; i<7; i++) {
+                const dateClone = new Date(d);
+                dateClone.setUTCDate(d.getUTCDate() + i);
+                dates.push(dateClone.toISOString().split('T')[0]);
+            }
+            return dates;
+        };
+
+        const generateId = () => Math.random().toString(36).substring(2, 9);
+        
+        const showToast = (msg, type = 'success') => { 
+            const toast = document.getElementById('toast'); 
+            const msgEl = document.getElementById('toast-message'); 
+            const iconEl = toast.querySelector('i');
+            msgEl.textContent = msg; 
+            if (type === 'error') {
+                toast.classList.remove('bg-green-500'); toast.classList.add('bg-red-500'); iconEl.className = 'ph ph-warning-circle text-xl';
+            } else {
+                toast.classList.remove('bg-red-500'); toast.classList.add('bg-green-500'); iconEl.className = 'ph ph-check-circle text-xl';
+            }
+            toast.classList.remove('opacity-0', 'translate-x-full'); 
+            setTimeout(() => toast.classList.add('opacity-0', 'translate-x-full'), 3000); 
+        };
+
+        // Загрузка демо-данных из памяти браузера или генерация новых
+        const loadData = () => {
+            const stored = localStorage.getItem('bakery_dashboard_data');
+            if (stored) return JSON.parse(stored);
+            
+            const dummy = [];
+            const today = new Date();
+            for (let i = 0; i < 40; i++) { 
+                const date = new Date(today); date.setDate(today.getDate() - i);
+                const dateStr = date.toISOString().split('T')[0];
+                const dayOfWeek = date.getDay();
+                
+                BAKERIES.forEach(bakery => {
+                    if (Math.random() > 0.05) { 
+                        let baseCustomers = Math.floor(Math.random() * 80) + 70;
+                        if(dayOfWeek === 0 || dayOfWeek === 6) baseCustomers += 50; 
+                        
+                        const customers = baseCustomers;
+                        const revenue = customers * (Math.floor(Math.random() * 100) + 330);
+                        dummy.push({ id: generateId(), date: dateStr, bakery, revenue, customers, avgCheck: parseFloat((revenue / customers).toFixed(2)) });
+                    }
+                });
+            }
+            const sortedDummy = dummy.sort((a, b) => new Date(b.date) - new Date(a.date));
+            localStorage.setItem('bakery_dashboard_data', JSON.stringify(sortedDummy));
+            return sortedDummy;
+        };
+        const saveData = () => localStorage.setItem('bakery_dashboard_data', JSON.stringify(state.data));
+
+        const handleRoleChange = () => {
+            state.currentUserRole = document.getElementById('role-selector').value;
+            state.historyFilterBakery = null; 
+            
+            const isAdmin = state.currentUserRole === 'admin';
+            
+            const reportBtn = document.getElementById('tab-btn-report');
+            const managerBtn = document.getElementById('tab-btn-manager');
+            
+            if (isAdmin) {
+                if(reportBtn) reportBtn.classList.remove('hidden');
+                if(managerBtn) managerBtn.classList.add('hidden');
+                if(state.activeTab === 'manager') switchTab('input');
+            } else {
+                if(reportBtn) reportBtn.classList.add('hidden');
+                if(managerBtn) managerBtn.classList.remove('hidden');
+                if(state.activeTab === 'report') switchTab('manager');
+            }
+            
+            showToast(`Режим: ${isAdmin ? 'Администратор' : state.currentUserRole}`);
+            
+            if(state.activeTab === 'input') renderRecentEntries();
+            if(state.activeTab === 'manager') { updateManagerWeeksDropdown(); renderManagerTab(); }
+        };
+
+        const deleteEntry = (id) => {
+            if (confirm("Вы уверены, что хотите безвозвратно удалить эту запись из истории?")) {
+                state.data = state.data.filter(item => item.id !== id);
+                saveData();
+                renderRecentEntries();
+                if(state.activeTab === 'report') renderReportTab();
+                if(state.activeTab === 'manager') renderManagerTab();
+                showToast('Запись удалена');
+            }
+        };
+
+        // АЛГОРИТМ ПЛАНИРОВАНИЯ
+        const getDailyPlan = (bakery, targetDateStr) => {
+            const targetDateObj = new Date(targetDateStr);
+            const targetWeekStr = getWeekNumber(targetDateObj);
+            const targetDayOfWeek = targetDateObj.getDay();
+
+            // Данные только ДО целевой недели
+            const validHistory = state.data.filter(d => d.bakery === bakery && getWeekNumber(new Date(d.date)) < targetWeekStr);
+            const sameDaysHistory = validHistory.filter(d => new Date(d.date).getDay() === targetDayOfWeek);
+
+            if (sameDaysHistory.length > 0) {
+                const sum = sameDaysHistory.reduce((acc, item) => acc + item.revenue, 0);
+                return Math.round(sum / sameDaysHistory.length);
+            } else if (validHistory.length > 0) {
+                const sum = validHistory.reduce((acc, item) => acc + item.revenue, 0);
+                return Math.round(sum / validHistory.length);
+            }
+            return 0; 
+        };
+
+        const filterHistoryByBakery = (bakery) => {
+            if (state.currentUserRole !== 'admin') return;
+            state.historyFilterBakery = bakery;
+            renderRecentEntries();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        };
+
+        const clearHistoryFilter = () => {
+            state.historyFilterBakery = null;
+            renderRecentEntries();
+        };
+
+        const renderRecentEntries = () => {
+            const tbody = document.getElementById('recent-entries-tbody');
+            const emptyState = document.getElementById('empty-data-state');
+            const badge = document.getElementById('total-entries-badge');
+            const clearBtn = document.getElementById('clear-filter-btn');
+            
+            let displayData = state.currentUserRole === 'admin' ? state.data : state.data.filter(item => item.bakery === state.currentUserRole);
+            
+            const isDrillDown = state.historyFilterBakery && state.currentUserRole === 'admin';
+            if (isDrillDown) {
+                displayData = displayData.filter(item => item.bakery === state.historyFilterBakery);
+                clearBtn.classList.remove('hidden');
+                document.getElementById('filter-bakery-name').textContent = `Показать все точки`;
+            } else {
+                clearBtn.classList.add('hidden');
+            }
+            
+            badge.textContent = `Всего записей: ${displayData.length}`;
+            tbody.innerHTML = '';
+            
+            if (!displayData.length) { emptyState.classList.remove('hidden'); return; }
+            emptyState.classList.add('hidden');
+            
+            displayData.slice(0, 50).forEach(item => {
+                const tr = document.createElement('tr');
+                tr.className = 'border-b border-slate-100 hover:bg-slate-50 transition-colors';
+                
+                const bakeryHtml = (!isDrillDown && state.currentUserRole === 'admin')
+                    ? `<span class="text-indigo-600 hover:text-indigo-800 cursor-pointer font-semibold underline decoration-indigo-200 underline-offset-2" onclick="filterHistoryByBakery('${item.bakery}')">${item.bakery}</span>`
+                    : `<span class="font-medium text-slate-800">${item.bakery}</span>`;
+
+                // План ИИ рассчитывается и выводится всегда
+                let planHtml = '';
+                const dailyPlan = getDailyPlan(item.bakery, item.date);
+                if (dailyPlan > 0) {
+                    const p = Math.round((item.revenue / dailyPlan) * 100);
+                    const c = p >= 100 ? 'text-green-600' : 'text-rose-500';
+                    planHtml = `<div class="text-[11px] text-slate-500 mt-0.5">План ИИ: ${formatCurrency(dailyPlan)} <span class="font-bold ${c}">(${p}%)</span></div>`;
+                }
+
+                tr.innerHTML = `
+                    <td class="px-6 py-4 text-sm text-slate-700 whitespace-nowrap">${new Date(item.date).toLocaleDateString('ru-RU')}</td>
+                    <td class="px-6 py-4 text-sm whitespace-nowrap">${bakeryHtml}</td>
+                    <td class="px-6 py-4 text-sm text-right whitespace-nowrap bg-slate-50/50 border-l border-slate-100">
+                        <div class="font-bold text-slate-800">${formatCurrency(item.revenue)}</div>
+                        ${planHtml}
+                    </td>
+                    <td class="px-6 py-4 text-sm text-right whitespace-nowrap border-l border-slate-100">
+                        <div class="font-bold text-orange-600">${formatCurrency(item.avgCheck)}</div>
+                        <div class="text-[11px] text-slate-400 mt-0.5">${item.customers} чек.</div>
+                    </td>
+                    <td class="px-6 py-4 text-sm text-center border-l border-slate-100">
+                        <button class="text-slate-400 hover:text-red-500 hover:bg-red-50 p-1.5 rounded transition-all" title="Удалить запись" onclick="deleteEntry('${item.id}')"><i class="ph ph-trash text-lg"></i></button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        };
+
+        const handleTargetCheckChange = () => {
+            const val = parseInt(document.getElementById('target-avg-check').value);
+            if (!isNaN(val) && val > 0) { state.targetAvgCheck = val; if (state.activeTab === 'report') renderReportTab(); }
+        };
+
+        const calculateWeeklyReport = () => {
+            if (!state.selectedWeek) return [];
+            const map = new Map(); 
+            BAKERIES.forEach(b => map.set(b, { bakery: b, revenueFact: 0, revenuePlan: 0, customers: 0, daysActive: 0, dailyEntries: [] }));
+            
+            state.data.forEach(item => { 
+                if (getWeekNumber(new Date(item.date)) === state.selectedWeek) { 
+                    let rec = map.get(item.bakery); 
+                    rec.revenueFact += item.revenue; 
+                    rec.customers += item.customers; 
+                    rec.daysActive += 1;
+                    rec.dailyEntries.push(item);
+                    
+                    const dailyPlan = getDailyPlan(item.bakery, item.date);
+                    rec.revenuePlan += dailyPlan;
+                } 
+            });
+            
+            return Array.from(map.values())
+                .filter(r => r.revenueFact > 0)
+                .map(r => ({ ...r, avgCheck: parseFloat((r.revenueFact / r.customers).toFixed(2)) }))
+                .sort((a, b) => b.revenueFact - a.revenueFact);
+        };
+
+        const renderReportTab = () => {
+            const reportData = calculateWeeklyReport();
+            const targetCheck = state.targetAvgCheck;
+            
+            const totalRevFact = reportData.reduce((s, i) => s + i.revenueFact, 0);
+            const totalRevPlan = reportData.reduce((s, i) => s + i.revenuePlan, 0);
+            const totalCust = reportData.reduce((s, i) => s + i.customers, 0);
+            
+            const percentRev = totalRevPlan ? Math.round((totalRevFact/totalRevPlan)*100) : 0;
+            document.getElementById('kpi-total-revenue').innerHTML = `${formatCurrency(totalRevFact)} <div class="text-xs font-normal text-slate-500 mt-2 bg-slate-100 p-1.5 rounded inline-block">План ИИ: ${formatCurrency(totalRevPlan)} <span class="font-bold ${percentRev >= 100 ? 'text-green-600' : 'text-rose-500'} ml-1">(${percentRev}%)</span></div>`;
+            document.getElementById('kpi-total-customers').innerHTML = `${totalCust.toLocaleString('ru-RU')} <div class="text-xs font-normal text-slate-500 mt-2 bg-slate-100 p-1.5 rounded inline-block">По всей сети за неделю</div>`;
+            
+            // ТОП-3
+            const top3Container = document.getElementById('top3-avg-check-container');
+            let bakeryStats = reportData.map(item => {
+                const fulfillment = (item.avgCheck / targetCheck) * 100;
+                return { bakery: item.bakery, avgCheck: item.avgCheck, percent: fulfillment };
+            }).sort((a, b) => b.percent - a.percent);
+            
+            let top3Html = '';
+            if(bakeryStats.length === 0) {
+                top3Html = '<div class="text-sm text-slate-400">Нет данных</div>';
+            } else {
+                bakeryStats.slice(0, 3).forEach((stat, idx) => {
+                    const colorClass = idx === 0 ? 'bg-amber-500' : idx === 1 ? 'bg-slate-400' : 'bg-orange-400';
+                    const textColor = idx === 0 ? 'text-amber-600' : idx === 1 ? 'text-slate-600' : 'text-orange-600';
+                    const badgeIcon = idx === 0 ? '🥇' : idx === 1 ? '🥈' : '🥉';
+                    const barWidth = Math.min(stat.percent, 100); 
+                    
+                    top3Html += `
+                        <div>
+                            <div class="flex justify-between items-end mb-1">
+                                <span class="text-xs font-bold text-slate-700">${badgeIcon} ${stat.bakery}</span>
+                                <span class="text-xs font-bold ${textColor}">${stat.percent.toFixed(1)}%</span>
+                            </div>
+                            <div class="w-full bg-slate-100 rounded-full h-2">
+                                <div class="${colorClass} h-2 rounded-full transition-all duration-500" style="width: ${barWidth}%"></div>
+                            </div>
+                            <div class="text-[10px] text-slate-400 mt-0.5 text-right">Факт: ${formatCurrency(stat.avgCheck)} / <span class="font-medium text-slate-500">Цель: ${targetCheck} ₽</span></div>
+                        </div>
+                    `;
+                });
+            }
+            top3Container.innerHTML = top3Html;
+
+            // Таблица План-Факт
+            const tbody = document.getElementById('report-tbody'); 
+            tbody.innerHTML = '';
+            const recs = state.aiRecommendations[state.selectedWeek] || {};
+            
+            reportData.forEach(item => {
+                let revHtml = `<div class="font-bold text-slate-800 text-sm">${formatCurrency(item.revenueFact)}</div>`;
+                if (item.revenuePlan > 0) {
+                    const p = Math.round((item.revenueFact / item.revenuePlan) * 100);
+                    revHtml += `<div class="text-[11px] text-slate-500 mt-0.5">План: ${formatCurrency(item.revenuePlan)} <span class="font-bold ${p >= 100 ? 'text-green-600' : 'text-rose-500'}">${p}%</span></div>`;
+                }
+
+                const cDiff = item.avgCheck - targetCheck;
+                let checkHtml = `<div class="font-bold text-slate-800 text-sm">${formatCurrency(item.avgCheck)}</div><div class="text-[11px] text-slate-500 mt-0.5">Цель: ${targetCheck} <span class="font-bold ${cDiff >= 0 ? 'text-emerald-600' : 'text-rose-500'}">${cDiff >= 0 ? '+' : ''}${cDiff.toFixed(0)} ₽</span></div>`;
+
+                let statusIcon = (item.revenuePlan && item.revenueFact >= item.revenuePlan && cDiff >= 0) ? '<i class="ph ph-medal text-amber-500 text-lg mr-1" title="Отличные показатели"></i>' : ((item.revenuePlan && item.revenueFact < item.revenuePlan && cDiff < 0) ? '<i class="ph ph-warning text-rose-500 text-lg mr-1" title="Требует внимания"></i>' : '');
+                
+                const tr = `<tr class="hover:bg-slate-50 transition-colors">
+                    <td class="px-6 py-4 border-b border-slate-100">
+                        <span class="font-semibold text-indigo-600 hover:text-indigo-800 cursor-pointer text-sm underline decoration-indigo-200 underline-offset-2" onclick="openBakeryModal('${item.bakery}')">${item.bakery}</span>
+                    </td>
+                    <td class="px-6 py-4 text-center border-b border-slate-100 border-l"><span class="inline-block px-2.5 py-0.5 text-xs font-medium bg-slate-100 text-slate-700 rounded-md">${item.daysActive} дн.</span></td>
+                    <td class="px-6 py-4 text-right border-b border-slate-100 border-l bg-slate-50/30">${revHtml}</td>
+                    <td class="px-6 py-4 text-right border-b border-slate-100 border-l"><span class="text-sm font-medium text-slate-600">${item.customers}</span></td>
+                    <td class="px-6 py-4 text-right border-b border-slate-100 border-l bg-slate-50/30">${checkHtml}</td>
+                    <td class="px-6 py-4 border-b border-slate-100 border-l min-w-[250px]"><div class="flex items-center mb-1">${statusIcon}</div>${recs[item.bakery] ? `<div class="text-xs text-indigo-800 bg-indigo-50 p-2 rounded">${recs[item.bakery]}</div>` : '<span class="text-slate-400 text-xs italic">Нажмите Анализ</span>'}</td>
+                </tr>`;
+                tbody.insertAdjacentHTML('beforeend', tr);
+            });
+            
+            renderChart(reportData);
+            renderAvgCheckChart(reportData);
+        };
+
+        const renderChart = (data) => { 
+            const ctx = document.getElementById('revenueChart').getContext('2d'); 
+            if(state.chartInstance) state.chartInstance.destroy();
+            state.chartInstance = new Chart(ctx, { 
+                type: 'bar', 
+                data: { labels: data.map(d => d.bakery), datasets: [ { label: 'Факт (₽)', data: data.map(d => d.revenueFact), backgroundColor: '#6366f1', borderRadius: 4 }, { label: 'План (₽)', data: data.map(d => d.revenuePlan), backgroundColor: '#cbd5e1', borderRadius: 4 } ] }, 
+                options: { responsive: true, maintainAspectRatio: false, plugins: { tooltip: { callbacks: { label: (ctx) => formatCurrency(ctx.raw) } } }, scales: { y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { callback: (v) => (v / 1000) + 'к ₽' } }, x: { grid: { display: false } } } } 
+            }); 
+        };
+
+        const renderAvgCheckChart = (data) => { 
+            const ctx = document.getElementById('avgCheckChart').getContext('2d'); 
+            if (state.avgCheckChartInstance) state.avgCheckChartInstance.destroy();
+            const sortedData = [...data].sort((a, b) => b.avgCheck - a.avgCheck);
+            state.avgCheckChartInstance = new Chart(ctx, { 
+                type: 'bar', 
+                data: { labels: sortedData.map(d => d.bakery), datasets: [ { label: 'Факт (₽)', data: sortedData.map(d => d.avgCheck), backgroundColor: '#f59e0b', borderRadius: 4, order: 2 }, { label: 'Цель (₽)', data: sortedData.map(() => state.targetAvgCheck), type: 'line', borderColor: '#10b981', borderDash: [5, 5], fill: false, pointRadius: 0, order: 1 } ] }, 
+                options: { responsive: true, maintainAspectRatio: false, plugins: { tooltip: { callbacks: { label: (ctx) => formatCurrency(ctx.raw) } } }, scales: { y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { callback: (v) => v + ' ₽' } }, x: { grid: { display: false } } } } 
+            }); 
+        };
+
+        const openBakeryModal = (bakery) => {
+            document.getElementById('modal-title').innerHTML = `<i class="ph ph-storefront mr-2 text-indigo-600 text-2xl"></i> Отчет: ${bakery} <span class="text-sm font-normal text-slate-500 ml-2 bg-slate-200 px-2 py-1 rounded-full">${state.selectedWeek}</span>`;
+            
+            const entries = state.data.filter(d => d.bakery === bakery && getWeekNumber(new Date(d.date)) === state.selectedWeek).sort((a,b) => new Date(a.date) - new Date(b.date));
+            const targetCheck = state.targetAvgCheck;
+            
+            const totalRev = entries.reduce((s,i)=>s+i.revenue,0);
+            const totalCust = entries.reduce((s,i)=>s+i.customers,0);
+            const avgCheck = totalCust ? totalRev/totalCust : 0;
+            
+            let totalPlan = 0;
+            entries.forEach(e => { totalPlan += getDailyPlan(bakery, e.date); });
+            
+            let html = `
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div class="bg-indigo-50 border border-indigo-100 p-4 rounded-xl">
+                        <div class="text-sm text-indigo-800 font-medium mb-1">Выручка Факт</div>
+                        <div class="text-2xl font-bold text-indigo-900">${formatCurrency(totalRev)}</div>
+                        <div class="text-xs text-indigo-700 mt-1 font-semibold bg-indigo-100 p-1 rounded inline-block">План ИИ: ${formatCurrency(totalPlan)}</div>
+                    </div>
+                    <div class="bg-emerald-50 border border-emerald-100 p-4 rounded-xl">
+                        <div class="text-sm text-emerald-800 font-medium mb-1">Средний чек Факт</div>
+                        <div class="text-2xl font-bold text-emerald-900">${formatCurrency(avgCheck)}</div>
+                        <div class="text-xs text-emerald-700 mt-1 font-semibold bg-emerald-100 p-1 rounded inline-block">Цель: ${targetCheck} ₽</div>
+                    </div>
+                    <div class="bg-slate-50 border border-slate-200 p-4 rounded-xl">
+                        <div class="text-sm text-slate-600 font-medium mb-1">Покупателей</div>
+                        <div class="text-2xl font-bold text-slate-800">${totalCust}</div>
+                        <div class="text-xs text-slate-500 mt-1">За ${entries.length} рабочих дней</div>
+                    </div>
+                </div>
+                
+                <h3 class="text-lg font-bold text-slate-800 mb-3 flex items-center"><i class="ph ph-calendar-check mr-2 text-indigo-500"></i> Детализация по дням</h3>
+                <div class="overflow-hidden rounded-xl border border-slate-200">
+                    <table class="min-w-full divide-y divide-slate-200">
+                        <thead class="bg-slate-50">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-bold text-slate-500">Дата</th>
+                                <th class="px-4 py-3 text-right text-xs font-bold text-indigo-600">Факт Выручка</th>
+                                <th class="px-4 py-3 text-right text-xs font-bold text-slate-500 border-r border-slate-200">План (День)</th>
+                                <th class="px-4 py-3 text-right text-xs font-bold text-emerald-600">Факт Чек</th>
+                                <th class="px-4 py-3 text-right text-xs font-bold text-slate-500">Цель Чек</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+            `;
+            
+            if(entries.length === 0) { html += `<tr><td colspan="5" class="p-6 text-center text-slate-500">Нет данных за эту неделю</td></tr>`; }
+            else {
+                entries.forEach(e => {
+                    const dailyPlan = getDailyPlan(bakery, e.date);
+                    const revPrc = dailyPlan ? Math.round((e.revenue/dailyPlan)*100) : 0;
+                    const revColor = revPrc >= 100 ? 'text-green-600' : 'text-rose-500';
+                    const chkDiff = e.avgCheck - targetCheck;
+                    const chkColor = chkDiff >= 0 ? 'text-green-600' : 'text-rose-500';
+                    
+                    const dayNames = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+                    const dateObj = new Date(e.date);
+                    const dateStr = `${dateObj.toLocaleDateString('ru-RU')} (${dayNames[dateObj.getDay()]})`;
+
+                    html += `
+                        <tr class="hover:bg-slate-50">
+                            <td class="px-4 py-3 text-sm font-medium text-slate-700">${dateStr}</td>
+                            <td class="px-4 py-3 text-sm text-right font-bold text-slate-800">${formatCurrency(e.revenue)}</td>
+                            <td class="px-4 py-3 text-sm text-right border-r border-slate-200">
+                                ${dailyPlan ? `${formatCurrency(dailyPlan)} <span class="ml-1 font-bold ${revColor} text-[11px] bg-slate-100 px-1 rounded">(${revPrc}%)</span>` : '-'}
+                            </td>
+                            <td class="px-4 py-3 text-sm text-right font-bold text-slate-800">${formatCurrency(e.avgCheck)}</td>
+                            <td class="px-4 py-3 text-sm text-right">
+                                ${targetCheck} ₽ <span class="ml-1 font-bold ${chkColor} text-[11px] bg-slate-100 px-1 rounded">(${chkDiff >= 0 ? '+' : ''}${Math.round(chkDiff)})</span>
+                            </td>
+                        </tr>
+                    `;
+                });
+            }
+            
+            html += `</tbody></table></div>`;
+            document.getElementById('modal-body').innerHTML = html;
+            
+            const modal = document.getElementById('bakery-modal');
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.remove('opacity-0');
+                document.getElementById('bakery-modal-content').classList.remove('scale-95');
+            }, 10);
+        };
+
+        const closeBakeryModal = () => {
+            const modal = document.getElementById('bakery-modal');
+            modal.classList.add('opacity-0');
+            document.getElementById('bakery-modal-content').classList.add('scale-95');
+            setTimeout(() => modal.classList.add('hidden'), 200);
+        };
+
+        const updateManagerWeeksDropdown = () => {
+            const sel = document.getElementById('manager-week-selector');
+            const today = new Date();
+            const currentWeek = getWeekNumber(today);
+            
+            const nextWeekDate = new Date(today);
+            nextWeekDate.setDate(today.getDate() + 7);
+            const nextWeek = getWeekNumber(nextWeekDate);
+            
+            const weeks = [...new Set(state.data.map(i => getWeekNumber(new Date(i.date))))];
+            if (!weeks.includes(currentWeek)) weeks.push(currentWeek);
+            if (!weeks.includes(nextWeek)) weeks.push(nextWeek);
+            
+            weeks.sort().reverse();
+            
+            sel.innerHTML = weeks.map(w => {
+                let label = `Неделя ${w.split('-W')[1]}, ${w.split('-W')[0]}`;
+                if (w === currentWeek) label += ' (Текущая)';
+                if (w === nextWeek) label += ' (План на будущую)';
+                return `<option value="${w}">${label}</option>`;
+            }).join('');
+            
+            if(!state.managerSelectedWeek) state.managerSelectedWeek = currentWeek;
+            sel.value = state.managerSelectedWeek;
+        };
+
+        const renderManagerTab = () => {
+            state.managerSelectedWeek = document.getElementById('manager-week-selector').value;
+            const bakery = state.currentUserRole;
+            document.getElementById('manager-plan-title').innerHTML = `<i class="ph ph-storefront mr-2 text-indigo-500"></i> ${bakery}`;
+            document.getElementById('manager-plan-meta').textContent = `План и результаты на период: ${state.managerSelectedWeek}`;
+            
+            const dates = getDatesFromWeekStr(state.managerSelectedWeek);
+            const tbody = document.getElementById('manager-tbody');
+            tbody.innerHTML = '';
+            
+            let totalPlan = 0;
+            let totalFact = 0;
+            const targetCheck = state.targetAvgCheck; // Цель устанавливается админом
+            
+            dates.forEach(dateStr => {
+                const dateObj = new Date(dateStr);
+                const dayNames = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+                const displayDate = `${dateObj.toLocaleDateString('ru-RU')} <span class="text-xs text-slate-400 ml-1">(${dayNames[dateObj.getDay()]})</span>`;
+                
+                // Прогноз (План ИИ)
+                const dailyPlan = getDailyPlan(bakery, dateStr);
+                totalPlan += dailyPlan;
+                
+                // Фактические данные
+                const factEntry = state.data.find(d => d.bakery === bakery && d.date === dateStr);
+                const factRev = factEntry ? factEntry.revenue : 0;
+                const factCheck = factEntry ? factEntry.avgCheck : 0;
+                totalFact += factRev;
+
+                let fulfillmentHtml = '-';
+                if(dailyPlan > 0 && factRev > 0) {
+                    const p = Math.round((factRev/dailyPlan)*100);
+                    const c = p >= 100 ? 'text-green-600 bg-green-100' : 'text-rose-600 bg-rose-100';
+                    fulfillmentHtml = `<span class="px-2 py-1 rounded text-xs font-bold ${c}">${p}%</span>`;
+                }
+
+                let checkFulfillmentHtml = '-';
+                if(factCheck > 0) {
+                    const diff = factCheck - targetCheck;
+                    const c = diff >= 0 ? 'text-emerald-600' : 'text-rose-500';
+                    checkFulfillmentHtml = `<span class="font-bold text-[11px] bg-slate-100 px-1 rounded ${c}">${diff >= 0 ? '+' : ''}${Math.round(diff)} ₽</span>`;
+                }
+
+                // Визуальное выделение сегодняшнего дня
+                const isToday = dateStr === new Date().toISOString().split('T')[0];
+                const trClass = isToday ? 'bg-indigo-50/50 hover:bg-indigo-50 border-l-2 border-indigo-500' : 'hover:bg-slate-50 border-l-2 border-transparent';
+
+                const tr = `
+                    <tr class="${trClass} transition-colors">
+                        <td class="px-6 py-3 text-sm font-medium text-slate-700">${displayDate} ${isToday ? '<span class="ml-2 text-[10px] bg-indigo-500 text-white px-1.5 py-0.5 rounded">Сегодня</span>' : ''}</td>
+                        <td class="px-6 py-3 text-sm text-right font-bold text-indigo-600 border-l border-slate-100 bg-slate-50/30">${dailyPlan ? formatCurrency(dailyPlan) : '<span class="text-slate-300">Нет данных</span>'}</td>
+                        <td class="px-6 py-3 text-sm text-right font-bold ${factRev ? 'text-slate-800' : 'text-slate-300'} border-l border-slate-100">${factRev ? formatCurrency(factRev) : '—'}</td>
+                        <td class="px-6 py-3 text-center border-l border-slate-100">${fulfillmentHtml}</td>
+                        <td class="px-6 py-3 text-sm text-right text-slate-500 border-l border-slate-100">${targetCheck} ₽</td>
+                        <td class="px-6 py-3 text-sm text-right font-bold ${factCheck ? 'text-emerald-700' : 'text-slate-300'} border-l border-slate-100 bg-slate-50/30">
+                            ${factCheck ? formatCurrency(factCheck) : '—'}
+                            ${factCheck ? `<div class="mt-1">${checkFulfillmentHtml}</div>` : ''}
+                        </td>
+                    </tr>
+                `;
+                tbody.insertAdjacentHTML('beforeend', tr);
+            });
+
+            // Итоговая строка
+            const footerHtml = `
+                <tr class="bg-slate-100 font-bold border-t-2 border-slate-200">
+                    <td class="px-6 py-4 text-sm text-slate-800">ИТОГО ЗА НЕДЕЛЮ:</td>
+                    <td class="px-6 py-4 text-sm text-right text-indigo-700 border-l border-slate-200">${formatCurrency(totalPlan)}</td>
+                    <td class="px-6 py-4 text-sm text-right text-slate-800 border-l border-slate-200">${formatCurrency(totalFact)}</td>
+                    <td class="px-6 py-4 text-center border-l border-slate-200">
+                        ${totalPlan && totalFact ? `<span class="px-2 py-1 rounded text-xs text-white ${totalFact >= totalPlan ? 'bg-green-500' : 'bg-rose-500'}">${Math.round((totalFact/totalPlan)*100)}%</span>` : '-'}
+                    </td>
+                    <td colspan="2" class="px-6 py-4 border-l border-slate-200 bg-slate-200/50 text-right text-xs text-slate-500">Ср. чек зависит от трафика</td>
+                </tr>
+            `;
+            tbody.insertAdjacentHTML('beforeend', footerHtml);
+        };
+
+        const exportManagerToPDF = () => {
+            const element = document.getElementById('manager-pdf-content');
+            showToast('Генерация плана PDF...', 'success');
+            
+            const opt = {
+                margin: 0.3,
+                filename: `План_${state.currentUserRole}_${state.managerSelectedWeek}.pdf`,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true },
+                jsPDF: { unit: 'in', format: 'a4', orientation: 'landscape' }
+            };
+
+            html2pdf().set(opt).from(element).save().then(() => showToast('PDF план сохранен'));
+        };
+
+        const updateWeeksDropdown = () => { 
+            const weeks = [...new Set(state.data.map(i => getWeekNumber(new Date(i.date))))].sort().reverse(); 
+            const sel = document.getElementById('week-selector'); 
+            sel.innerHTML = weeks.length ? weeks.map(w => `<option value="${w}">Неделя ${w.split('-W')[1]}, ${w.split('-W')[0]}</option>`).join('') : '<option>Нет данных</option>'; 
+            if(weeks.length && (!state.selectedWeek || !weeks.includes(state.selectedWeek))) state.selectedWeek = weeks[0]; 
+            sel.value = state.selectedWeek; 
+            document.getElementById('btn-generate-ai').disabled = !weeks.length; 
+        };
+
+        const handleWeekChange = () => { state.selectedWeek = document.getElementById('week-selector').value; renderReportTab(); };
+
+        const generateAIRecommendations = () => { 
+            if(!state.selectedWeek) return; 
+            const btn = document.getElementById('btn-generate-ai'); 
+            const originalText = btn.innerHTML; 
+            btn.disabled = true; btn.innerHTML = '<i class="ph ph-spinner animate-spin-slow mr-2 text-lg"></i>Анализ...'; 
+            
+            setTimeout(() => { 
+                const report = calculateWeeklyReport(); 
+                const targetCheck = state.targetAvgCheck;
+                const newRecs = {}; 
+                report.forEach(item => { 
+                    let advice = [];
+                    if (item.revenuePlan > 0 && item.revenueFact < item.revenuePlan) advice.push(`Спад выручки (${Math.round((item.revenueFact/item.revenuePlan)*100)}% от плана).`);
+                    else if (item.revenuePlan > 0 && item.revenueFact >= item.revenuePlan * 1.1) advice.push(`Супер-результат! Премировать.`);
+                    
+                    if (item.avgCheck < targetCheck) advice.push(`Чек проседает. Внедрить комбо-наборы.`); 
+                    else advice.push(`План по чеку выполнен.`); 
+                    newRecs[item.bakery] = advice.join(' '); 
+                }); 
+                state.aiRecommendations[state.selectedWeek] = newRecs; 
+                btn.disabled = false; btn.innerHTML = originalText; 
+                renderReportTab(); showToast('ИИ-анализ завершен'); 
+            }, 800); 
+        };
+
+        const exportToPDF = () => {
+            const element = document.getElementById('report-content-to-pdf');
+            const header = document.getElementById('pdf-header');
+            const weekLabel = document.getElementById('pdf-week-label');
+            weekLabel.textContent = `Данные за период: ${state.selectedWeek} | Цель по чеку: ${state.targetAvgCheck} ₽`;
+            header.classList.remove('hidden');
+            
+            showToast('Генерация PDF...', 'success');
+            
+            const opt = {
+                margin: 0.3,
+                filename: `Отчет_Пекарни_${state.selectedWeek}.pdf`,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true },
+                jsPDF: { unit: 'in', format: 'a4', orientation: 'landscape' }
+            };
+
+            html2pdf().set(opt).from(element).save().then(() => {
+                header.classList.add('hidden');
+                showToast('PDF успешно сохранен');
+            });
+        };
+
+        const sendToEmail = () => {
+            if (!state.selectedWeek) return;
+            const targetEmail = "pirogi44@mail.ru";
+            const reportData = calculateWeeklyReport();
+            
+            const totalRev = formatCurrency(reportData.reduce((s,i)=>s+i.revenueFact,0));
+            const totalCust = reportData.reduce((s,i)=>s+i.customers,0);
+            const targetCheck = state.targetAvgCheck;
+            
+            let bakeryStats = reportData.map(item => ({ bakery: item.bakery, percent: (item.avgCheck / targetCheck) * 100 }))
+                                        .sort((a, b) => b.percent - a.percent).slice(0,3);
+
+            let top3Text = bakeryStats.map((b, i) => `${i+1}. ${b.bakery} (${b.percent.toFixed(1)}%)`).join('\n');
+
+            let body = `Отчет сети пекарен ПЛАН-ФАКТ\nНеделя: ${state.selectedWeek}\n\n`;
+            body += `ОБЩИЕ ПОКАЗАТЕЛИ:\n- Выручка сети: ${totalRev}\n- Покупателей: ${totalCust}\n- Целевой чек: ${targetCheck} руб.\n\n`;
+            body += `ТОП-3 ТОЧКИ ПО ВЫПОЛНЕНИЮ СР. ЧЕКА:\n${top3Text}\n\n`;
+            body += `Подробный план-факт доступен в панели администратора.`;
+
+            const mailto = `mailto:${targetEmail}?subject=Сводный отчет пекарен - ${state.selectedWeek}&body=${encodeURIComponent(body)}`;
+            window.location.href = mailto;
+            showToast('Открывается почтовый клиент');
+        };
+
+        const switchTab = (tabId) => { 
+            state.activeTab = tabId; 
+            
+            ['input', 'report', 'manager'].forEach(id => {
+                const el = document.getElementById(`tab-${id}`);
+                const btn = document.getElementById(`tab-btn-${id}`);
+                if(el) el.classList.toggle('hidden', id !== tabId);
+                if(btn) {
+                    btn.className = (id === tabId) 
+                        ? 'tab-active px-3 py-2 rounded-md text-sm font-medium flex items-center space-x-2 transition-colors' 
+                        : 'tab-inactive px-3 py-2 rounded-md text-sm font-medium flex items-center space-x-2 transition-colors';
+                }
+            });
+
+            if (tabId === 'input') renderRecentEntries(); 
+            else if (tabId === 'report') { updateWeeksDropdown(); renderReportTab(); }
+            else if (tabId === 'manager') { updateManagerWeeksDropdown(); renderManagerTab(); }
+        };
+
+        window.onload = () => {
+            const roleSelect = document.getElementById('role-selector');
+            BAKERIES.forEach(b => { 
+                roleSelect.appendChild(new Option(`Менеджер: ${b}`, b));
+            });
+            state.data = loadData();
+            handleRoleChange(); // Инициализация интерфейса в зависимости от роли
+        };
+    </script>
+</body>
+</html>
